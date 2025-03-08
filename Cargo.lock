@@ -3875,6 +3875,7 @@ dependencies = [
  "solana-sdk-ids",
  "solana-system-interface",
  "solana-sysvar",
+ "solana-zk-sdk",
  "spl-pod",
  "spl-tlv-account-resolution",
  "spl-token",

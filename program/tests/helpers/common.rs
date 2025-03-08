@@ -2,33 +2,18 @@ use {
     crate::helpers::{
         create_mint_builder::{KeyedAccount, TokenProgram},
         wrap_builder::TransferAuthority,
-    },
-    mollusk_svm::Mollusk,
-    solana_account::Account,
-    solana_program_option::COption,
-    solana_program_pack::Pack,
-    solana_pubkey::Pubkey,
-    solana_rent::Rent,
-    spl_pod::{
-        optional_keys::OptionalNonZeroPubkey,
+    }, mollusk_svm::Mollusk, solana_account::Account, solana_program_option::COption, solana_program_pack::Pack, solana_pubkey::Pubkey, solana_rent::Rent, solana_zk_sdk::encryption::{elgamal::ElGamalKeypair, pod::elgamal::PodElGamalPubkey}, spl_pod::{
+        optional_keys::{OptionalNonZeroElGamalPubkey, OptionalNonZeroPubkey},
         primitives::{PodBool, PodU64},
-    },
-    spl_tlv_account_resolution::{account::ExtraAccountMeta, state::ExtraAccountMetaList},
-    spl_token_2022::{
+    }, spl_tlv_account_resolution::{account::ExtraAccountMeta, state::ExtraAccountMetaList}, spl_token_2022::{
         extension::{
-            mint_close_authority::MintCloseAuthority,
-            transfer_fee::TransferFeeConfig,
-            transfer_hook::{TransferHook, TransferHookAccount},
-            BaseStateWithExtensionsMut, ExtensionType, PodStateWithExtensionsMut,
-            StateWithExtensionsMut,
+            confidential_transfer::ConfidentialTransferMint, mint_close_authority::MintCloseAuthority, transfer_fee::TransferFeeConfig, transfer_hook::{TransferHook, TransferHookAccount}, BaseStateWithExtensionsMut, ExtensionType, PodStateWithExtensionsMut, StateWithExtensionsMut
         },
         pod::{PodCOption, PodMint},
         state::{AccountState, Mint},
-    },
-    spl_transfer_hook_interface::{
+    }, spl_transfer_hook_interface::{
         get_extra_account_metas_address, instruction::ExecuteInstruction,
-    },
-    std::convert::TryFrom,
+    }, std::convert::TryFrom
 };
 
 pub fn init_mollusk() -> Mollusk {
@@ -81,6 +66,43 @@ fn token_2022_with_extension_data(supply: u64) -> Vec<u8> {
     buffer
 }
 
+
+fn confidential_token_2022_with_extension_data(
+    supply: u64,
+    mint_authority: Pubkey,
+    auditor_keypair: Option<ElGamalKeypair>
+) -> Vec<u8> {
+    let mint_size = ExtensionType::try_calculate_account_len::<PodMint>(&[
+        ExtensionType::MintCloseAuthority,
+        ExtensionType::ConfidentialTransferMint
+    ])
+    .unwrap();
+    let mut buffer = vec![0; mint_size];
+    let mut state =
+        PodStateWithExtensionsMut::<PodMint>::unpack_uninitialized(&mut buffer).unwrap();
+    state.base.decimals = MINT_DECIMALS;
+    state.base.is_initialized = PodBool::from_bool(true);
+    state.base.supply = PodU64::from(supply);
+    state.base.freeze_authority = PodCOption::from(COption::Some(FREEZE_AUTHORITY));
+    state.init_account_type().unwrap();
+
+    // Initialize MintCloseAuthority extension
+    let extension = state.init_extension::<MintCloseAuthority>(false).unwrap();
+    let close_authority = OptionalNonZeroPubkey::try_from(Some(Pubkey::new_unique())).unwrap();
+    extension.close_authority = close_authority;
+
+    let extension = state.init_extension::<ConfidentialTransferMint>(false).unwrap();
+    if let Some(auditor_keypair) = auditor_keypair {
+        extension.auditor_elgamal_pubkey = OptionalNonZeroElGamalPubkey::try_from(
+            Some(PodElGamalPubkey::from(auditor_keypair.pubkey_owned()))
+        ).unwrap();
+    }
+    extension.authority = OptionalNonZeroPubkey::try_from(Some(mint_authority)).unwrap();
+    extension.auto_approve_new_accounts = PodBool::from_bool(true);
+
+    buffer
+}
+
 // spl_token and spl_token_2022 are the same account structure except for owner
 pub fn setup_mint(token_program: TokenProgram, rent: &Rent, mint_authority: Pubkey) -> Account {
     let state = spl_token::state::Mint {
@@ -96,6 +118,35 @@ pub fn setup_mint(token_program: TokenProgram, rent: &Rent, mint_authority: Pubk
     };
     state.pack_into_slice(&mut data);
 
+    let lamports = rent.minimum_balance(data.len());
+
+    Account {
+        lamports,
+        data,
+        owner: token_program.id(),
+        ..Default::default()
+    }
+}
+
+pub fn setup_confidential_transfer_mint(
+    token_program: TokenProgram,
+    rent: &Rent,
+    mint_authority: Pubkey,
+    auditor_keypair: Option<ElGamalKeypair>
+) -> Account {
+    let state = spl_token::state::Mint {
+        decimals: MINT_DECIMALS,
+        is_initialized: true,
+        supply: MINT_SUPPLY,
+        mint_authority: COption::Some(mint_authority),
+        freeze_authority: COption::Some(FREEZE_AUTHORITY),
+    };
+    let mut data = confidential_token_2022_with_extension_data(
+        MINT_SUPPLY,
+        mint_authority,
+        auditor_keypair
+    );
+    state.pack_into_slice(&mut data);
     let lamports = rent.minimum_balance(data.len());
 
     Account {

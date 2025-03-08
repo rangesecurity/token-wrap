@@ -32,7 +32,7 @@ spl-pod = "0.5.1"
 spl-token = { version = "7.0.0", features = ["no-entrypoint"] }
 spl-transfer-hook-interface = "0.9.0"
 thiserror = "2.0.12"
-
+solana-zk-sdk = "2.1.13"
 # Should depend on the next crate version after 7.0.0 when https://github.com/solana-program/token-2022/pull/253 is deployed
 spl-token-2022 = { git = "https://github.com/solana-program/token-2022", rev = "00e0f4723c2606c0facbb4921e1b2e2e030d1fa6", features = ["no-entrypoint"] }
 

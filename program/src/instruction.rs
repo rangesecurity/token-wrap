@@ -88,6 +88,34 @@ pub enum TokenWrapInstruction {
         /// little-endian `u64` representing the amount to unwrap
         amount: u64,
     },
+    /// Create a wrapped confidential token mint. Assumes caller has pre-funded wrapped mint
+    /// and backpointer account. Supports both directions:
+    /// - spl-token to token-2022
+    /// - token-2022 to spl-token
+    /// - token-2022 to token-2022 w/ new extensions
+    ///
+    /// Accounts expected by this instruction:
+    ///
+    /// 0. `[w]` Unallocated wrapped mint account to create (PDA), address must
+    ///    be: `get_wrapped_mint_address(unwrapped_mint_address,
+    ///    wrapped_token_program_id)`
+    /// 1. `[w]` Unallocated wrapped backpointer account to create (PDA)
+    ///    `get_wrapped_mint_backpointer_address(wrapped_mint_address)`
+    /// 2. `[]` Existing unwrapped mint
+    /// 3. `[]` System program
+    /// 4. `[]` SPL Token program for wrapped mint
+    CreateConfidentialMint {
+        /// If true, idempotent creation. If false, fail if the mint already
+        /// exists.
+        idempotent: bool,
+        /// If true, allows token accounts to be automatically approved
+        auto_approve_new_accounts: bool,
+        /// If all 0's ([0u8; 32]) then no authority is set
+        approve_authority: [u8; 32],
+        /// If all 0's ([0u8; 32]) then the mint is created with no auditors
+        auditor_pubkey: [u8; 32],
+    },
+
 }
 
 impl TokenWrapInstruction {
@@ -108,6 +136,18 @@ impl TokenWrapInstruction {
             TokenWrapInstruction::Unwrap { amount } => {
                 buf.push(2);
                 buf.extend_from_slice(&amount.to_le_bytes());
+            }
+            TokenWrapInstruction::CreateConfidentialMint { 
+                idempotent, 
+                auto_approve_new_accounts, 
+                approve_authority,
+                auditor_pubkey 
+            } => {
+                buf.push(3);
+                buf.push(if *idempotent { 1 } else { 0});
+                buf.push(if *auto_approve_new_accounts { 1 } else { 0});
+                buf.extend_from_slice(&approve_authority[..]);
+                buf.extend_from_slice(&auditor_pubkey[..]);
             }
         }
         buf
@@ -132,6 +172,28 @@ impl TokenWrapInstruction {
             Some((&2, rest)) if rest.len() == 8 => {
                 let amount = u64::from_le_bytes(rest.try_into().unwrap());
                 Ok(TokenWrapInstruction::Unwrap { amount })
+            }
+            Some((&3, rest)) if rest.len() == 66 => {
+                let idempotent = match rest[0] {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(ProgramError::InvalidInstructionData),
+                };
+                let auto_approve_new_accounts = match rest[1] {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(ProgramError::InvalidInstructionData),
+                };
+                let mut approve_authority = [0u8; 32];
+                approve_authority.copy_from_slice(&rest[2..34]);
+                let mut auditor_pubkey = [0u8; 32];
+                auditor_pubkey.copy_from_slice(&rest[34..]);
+                Ok(TokenWrapInstruction::CreateConfidentialMint { 
+                    idempotent, 
+                    auto_approve_new_accounts,
+                    approve_authority,
+                    auditor_pubkey,
+                })
             }
             _ => Err(ProgramError::InvalidInstructionData),
         }
@@ -158,6 +220,33 @@ pub fn create_mint(
     Instruction::new_with_bytes(*program_id, &data, accounts)
 }
 
+/// Creates `CreateConfidentialMint` instruction.
+pub fn create_confidential_mint(
+    program_id: &Pubkey,
+    wrapped_mint_address: &Pubkey,
+    wrapped_backpointer_address: &Pubkey,
+    unwrapped_mint_address: &Pubkey,
+    wrapped_token_program_id: &Pubkey,
+    idempotent: bool,
+    auto_approve_new_accounts: bool,
+    approve_authority: [u8; 32],
+    auditor_pubkey: [u8; 32],
+) -> Instruction {
+    let accounts = vec![
+        AccountMeta::new(*wrapped_mint_address, false),
+        AccountMeta::new(*wrapped_backpointer_address, false),
+        AccountMeta::new_readonly(*unwrapped_mint_address, false),
+        AccountMeta::new_readonly(solana_system_interface::program::id(), false),
+        AccountMeta::new_readonly(*wrapped_token_program_id, false),
+    ];
+    let data = TokenWrapInstruction::CreateConfidentialMint { 
+        idempotent ,
+        auto_approve_new_accounts,
+        approve_authority,
+        auditor_pubkey
+    }.pack();
+    Instruction::new_with_bytes(*program_id, &data, accounts)
+}
 /// Creates `Wrap` instruction.
 #[allow(clippy::too_many_arguments)]
 pub fn wrap(
