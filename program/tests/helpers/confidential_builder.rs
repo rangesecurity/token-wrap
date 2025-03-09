@@ -186,7 +186,7 @@ impl<'a> ConfidentialMintBuilder<'a> {
                 account: account,
                 key: spl_associated_token_account::get_associated_token_address(
                     &confidential_token_account_owner.pubkey(),
-                    &wrapped_mint_addr,
+                    &unwrapped_mint_addr,
                 ),
             }
         };
@@ -245,9 +245,6 @@ impl<'a> ConfidentialMintBuilder<'a> {
             &[],
             1_000
         );
-        for (idx, account) in wrap_ix.accounts.iter().enumerate() {
-            println!("account(idx={idx}, key={})", account.pubkey);
-        }
         let accounts = &[
             (wrapped_mint_addr, wrapped_mint_account),
             (wrapped_backpointer_address, wrapped_backpointer_account),
@@ -296,10 +293,6 @@ impl<'a> ConfidentialMintBuilder<'a> {
                     (&instruction, &self.checks),
                     (&wrap_ix, &self.checks),
                 ], accounts);
-        //let result =
-        //    self.mollusk
-        //        .process_and_validate_instruction(&instruction, accounts,
-        // &self.checks);
 
         CreateMintResult {
             unwrapped_mint: KeyedAccount {
