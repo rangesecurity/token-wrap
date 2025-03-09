@@ -13,7 +13,7 @@ use {
     solana_zk_sdk::encryption::elgamal::ElGamalKeypair,
     spl_token_wrap::{
         get_wrapped_mint_address, get_wrapped_mint_authority, get_wrapped_mint_backpointer_address,
-        instruction::{create_confidential_mint, create_mint, wrap},
+        instruction::{create_confidential_mint, create_mint, unwrap, wrap},
     },
     std::convert::TryInto,
 };
@@ -245,6 +245,20 @@ impl<'a> ConfidentialMintBuilder<'a> {
             &[],
             1_000
         );
+        let unwrap_ix = unwrap(
+            &spl_token_wrap::id(),
+            &escrow_token_account.key,
+            &unwrapped_token_account.key,
+            &get_wrapped_mint_authority(&wrapped_mint_addr),
+            &unwrapped_mint_addr,
+            &spl_token_2022::id(),
+            &spl_token::id(),
+            &confidential_token_account.key,
+            &wrapped_mint_addr,
+            &confidential_token_account_owner.pubkey(),
+            &[],
+            100,
+        );
         let accounts = &[
             (wrapped_mint_addr, wrapped_mint_account),
             (wrapped_backpointer_address, wrapped_backpointer_account),
@@ -292,6 +306,7 @@ impl<'a> ConfidentialMintBuilder<'a> {
                 &[
                     (&instruction, &self.checks),
                     (&wrap_ix, &self.checks),
+                    (&unwrap_ix, &self.checks),
                 ], accounts);
 
         CreateMintResult {

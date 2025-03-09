@@ -54,7 +54,7 @@ fn test_successful_spl_token_to_confidential_transfer_mint() {
             .unwrap(),
         expected_mint_authority,
     );
-    assert_eq!(wrapped_mint_data.supply, PodU64::from(1_000));
+    assert_eq!(wrapped_mint_data.supply, PodU64::from(900));
     assert_eq!(wrapped_mint_data.is_initialized, PodBool::from_bool(true));
     assert_eq!(
         wrapped_mint_data
