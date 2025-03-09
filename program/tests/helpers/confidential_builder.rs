@@ -1,5 +1,5 @@
 use {
-    super::{common::setup_confidential_transfer_mint, create_mint_builder::TokenProgram}, crate::helpers::common::{init_mollusk, setup_mint}, mollusk_svm::{result::Check, Mollusk}, solana_account::Account, solana_pubkey::Pubkey, solana_sdk_ids::system_program, solana_zk_sdk::encryption::elgamal::ElGamalKeypair, spl_token_wrap::{
+    super::{common::{setup_confidential_transfer_account, setup_confidential_transfer_mint}, create_mint_builder::{KeyedAccount, TokenProgram}}, crate::helpers::common::{init_mollusk, setup_mint}, mollusk_svm::{result::Check, Mollusk}, solana_account::Account, solana_pubkey::Pubkey, solana_sdk::signature::Keypair, solana_sdk_ids::system_program, solana_zk_sdk::encryption::elgamal::ElGamalKeypair, spl_token_wrap::{
         get_wrapped_mint_address, get_wrapped_mint_authority, get_wrapped_mint_backpointer_address, instruction::{create_confidential_mint, create_mint}
     }, std::convert::TryInto
 };
@@ -9,19 +9,6 @@ pub struct CreateMintResult {
     pub wrapped_mint: KeyedAccount,
     pub wrapped_backpointer: KeyedAccount,
 }
-
-#[derive(Default, Debug, Clone)]
-pub struct KeyedAccount {
-    pub key: Pubkey,
-    pub account: Account,
-}
-
-impl KeyedAccount {
-    pub fn pair(&self) -> (Pubkey, Account) {
-        (self.key, self.account.clone())
-    }
-}
-
 
 pub struct ConfidentialMintBuilder<'a> {
     mollusk: Mollusk,
@@ -154,6 +141,16 @@ impl<'a> ConfidentialMintBuilder<'a> {
             [0u8; 32]
         };
 
+        let confidential_token_account_owner = Keypair::new();
+
+        let confidential_token_account = setup_confidential_transfer_account(
+            &confidential_token_account_owner,
+            &KeyedAccount {
+                key: wrapped_mint_addr,
+                account: wrapped_mint_account.clone(),
+            }
+        );
+
         let instruction = create_confidential_mint(
             &spl_token_wrap::id(),
             &wrapped_mint_addr,
@@ -184,15 +181,22 @@ impl<'a> ConfidentialMintBuilder<'a> {
                 },
             ),
             keyed_token_program,
+            (confidential_token_account.key, confidential_token_account.account)
         ];
 
         if self.checks.is_empty() {
             self.checks.push(Check::success());
         }
 
-        let result =
-            self.mollusk
-                .process_and_validate_instruction(&instruction, accounts, &self.checks);
+        let result = self.mollusk.process_and_validate_instruction_chain(
+            &[
+                (&instruction, &self.checks),
+            ],
+            accounts
+        );
+        //let result =
+        //    self.mollusk
+        //        .process_and_validate_instruction(&instruction, accounts, &self.checks);
 
         CreateMintResult {
             unwrapped_mint: KeyedAccount {
