@@ -21,7 +21,10 @@ use {
 pub mod helpers;
 
 #[test]
-fn test_successful_spl_token_to_confidential_transfer_mint() {
+fn test_wrapped_confidential_transfer_mint() {
+    // tests e2e confidential wrapped mint init, wrap, and unwrap
+
+
     let unwrapped_mint_address = Pubkey::new_unique();
     let wrapped_token_program_id = spl_token_2022::id();
     let wrapped_mint_address =
