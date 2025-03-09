@@ -286,21 +286,18 @@ pub fn setup_confidential_transfer_account(
         ExtensionType::ConfidentialTransferAccount
     ]).unwrap();
 
-    let mut account_data = vec![0; account_size+spl_token_2022::state::Account::LEN];
-    let mut state = PodStateWithExtensionsMut::<PodAccount>::unpack_uninitialized(
+    let mut account_data = vec![0; account_size];
+    let mut state = StateWithExtensionsMut::<spl_token_2022::state::Account>::unpack_uninitialized(
         &mut account_data
     ).unwrap();
-    state.base.mint = mint.key;
-    state.base.owner = owner.pubkey();
-    state.base.state = spl_token_2022::state::AccountState::Initialized.into();
-    state.init_account_extension_from_type(ExtensionType::ConfidentialTransferAccount).unwrap();
+
 
     let token_authority_elgamal_keypair = ElGamalKeypair::new_from_signer(owner, &token_account_address.to_bytes()).unwrap();
     let token_authority_aes_key = AeKey::new_from_signer(owner, &token_account_address.to_bytes()).unwrap();
 
     let decryptable_balance = token_authority_aes_key.encrypt(0);
 
-    let extension = state.init_extension::<ConfidentialTransferAccount>(false).unwrap();
+    let extension = state.init_extension::<ConfidentialTransferAccount>(true).unwrap();
     extension.approved = PodBool::from_bool(true);
     extension.elgamal_pubkey = token_authority_elgamal_keypair.pubkey_owned().into();
     extension.maximum_pending_balance_credit_counter = 65536.into();
@@ -317,6 +314,17 @@ pub fn setup_confidential_transfer_account(
     extension.actual_pending_balance_credit_counter = 0.into();
     extension.allow_non_confidential_credits = true.into();
 
+    state.base = spl_token_2022::state::Account {
+        mint: mint.key,
+        amount: 0,
+        owner: owner.pubkey(),
+        state: spl_token_2022::state::AccountState::Initialized,
+        ..Default::default()
+    };
+
+    state.pack_base();
+    state.init_account_type().unwrap();
+    
     KeyedAccount {
         key: token_account_address,
         account: Account {
