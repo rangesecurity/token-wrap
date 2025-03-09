@@ -2,14 +2,14 @@ use {
     crate::helpers::{
         create_mint_builder::{KeyedAccount, TokenProgram},
         wrap_builder::TransferAuthority,
-    }, mollusk_svm::Mollusk, solana_account::Account, solana_program_option::COption, solana_program_pack::Pack, solana_pubkey::Pubkey, solana_rent::Rent, solana_sdk::{signature::Keypair, signer::Signer}, solana_zk_sdk::encryption::{auth_encryption::AeKey, elgamal::ElGamalKeypair, pod::elgamal::PodElGamalPubkey}, spl_pod::{
+    }, bytemuck::Zeroable, mollusk_svm::Mollusk, solana_account::Account, solana_program_option::COption, solana_program_pack::Pack, solana_pubkey::Pubkey, solana_rent::Rent, solana_sdk::{signature::Keypair, signer::Signer}, solana_zk_sdk::encryption::{auth_encryption::AeKey, elgamal::ElGamalKeypair, pod::elgamal::PodElGamalPubkey}, spl_pod::{
         optional_keys::{OptionalNonZeroElGamalPubkey, OptionalNonZeroPubkey},
         primitives::{PodBool, PodU64},
     }, spl_tlv_account_resolution::{account::ExtraAccountMeta, state::ExtraAccountMetaList}, spl_token_2022::{
         extension::{
-            confidential_transfer::{ConfidentialTransferAccount, ConfidentialTransferMint}, mint_close_authority::MintCloseAuthority, transfer_fee::TransferFeeConfig, transfer_hook::{TransferHook, TransferHookAccount}, BaseStateWithExtensionsMut, ExtensionType, PodStateWithExtensionsMut, StateWithExtensionsMut
+            confidential_transfer::{ConfidentialTransferAccount, ConfidentialTransferMint, EncryptedBalance}, mint_close_authority::MintCloseAuthority, transfer_fee::TransferFeeConfig, transfer_hook::{TransferHook, TransferHookAccount}, BaseStateWithExtensionsMut, ExtensionType, PodStateWithExtensionsMut, StateWithExtensionsMut
         },
-        pod::{PodCOption, PodMint},
+        pod::{PodAccount, PodCOption, PodMint},
         state::{AccountState, Mint},
     }, spl_transfer_hook_interface::{
         get_extra_account_metas_address, instruction::ExecuteInstruction,
@@ -286,13 +286,14 @@ pub fn setup_confidential_transfer_account(
         ExtensionType::ConfidentialTransferAccount
     ]).unwrap();
 
-    let mut account_data = vec![0; account_size];
-    let mut state = StateWithExtensionsMut::<spl_token_2022::state::Account>::unpack_uninitialized(
+    let mut account_data = vec![0; account_size+spl_token_2022::state::Account::LEN];
+    let mut state = PodStateWithExtensionsMut::<PodAccount>::unpack_uninitialized(
         &mut account_data
     ).unwrap();
     state.base.mint = mint.key;
     state.base.owner = owner.pubkey();
-    state.base.state = spl_token_2022::state::AccountState::Initialized;
+    state.base.state = spl_token_2022::state::AccountState::Initialized.into();
+    state.init_account_extension_from_type(ExtensionType::ConfidentialTransferAccount).unwrap();
 
     let token_authority_elgamal_keypair = ElGamalKeypair::new_from_signer(owner, &token_account_address.to_bytes()).unwrap();
     let token_authority_aes_key = AeKey::new_from_signer(owner, &token_account_address.to_bytes()).unwrap();
@@ -301,13 +302,25 @@ pub fn setup_confidential_transfer_account(
 
     let extension = state.init_extension::<ConfidentialTransferAccount>(false).unwrap();
     extension.approved = PodBool::from_bool(true);
-    extension.decryptable_available_balance = decryptable_balance.into();
     extension.elgamal_pubkey = token_authority_elgamal_keypair.pubkey_owned().into();
     extension.maximum_pending_balance_credit_counter = 65536.into();
+
+    extension.pending_balance_lo = EncryptedBalance::zeroed();
+    extension.pending_balance_hi = EncryptedBalance::zeroed();
+    extension.available_balance = EncryptedBalance::zeroed();
+
+    
+    extension.decryptable_available_balance = decryptable_balance.into();
+    extension.allow_confidential_credits = true.into();
+    extension.pending_balance_credit_counter = 0.into();
+    extension.expected_pending_balance_credit_counter = 0.into();
+    extension.actual_pending_balance_credit_counter = 0.into();
+    extension.allow_non_confidential_credits = true.into();
+
     KeyedAccount {
         key: token_account_address,
         account: Account {
-            lamports: Rent::default().minimum_balance(account_size),
+            lamports: Rent::default().minimum_balance(account_size+spl_token_2022::state::Account::LEN),
             data: account_data,
             owner: spl_token_2022::id(),
             executable: false,
