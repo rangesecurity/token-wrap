@@ -10,7 +10,7 @@ pub mod state;
 
 use solana_pubkey::Pubkey;
 
-solana_pubkey::declare_id!("TwRapQCDhWkZRrDaHfZGuHxkZ91gHDRkyuzNqeU5MgR");
+solana_pubkey::declare_id!("PtwjzDzqbJr41iHYy8KG3Jb8VcwgRagJWj9Gk3Jg9f9");
 
 const WRAPPED_MINT_SEED: &[u8] = br"mint";
 
